@@ -36,11 +36,11 @@ async def command_start_handler(message: Message, state: FSMContext) -> None:
         kb.extend(await customer_menu(state))
     if someone.manager is not None:
         kb.extend(await manager_menu(state))
+    await state.set_data({'customer': someone.customer, 'manager': someone.manager})
+    await state.set_state(MainState.main)
     await message.answer('Главное меню', reply_markup=ReplyKeyboardMarkup(
         keyboard=[kb], resize_keyboard=True
     ))
-    await state.set_data({'customer': someone.customer, 'manager': someone.manager})
-    await state.set_state(MainState.main)
 
 
 MainState.STATE_FUNCTION = command_start_handler
