@@ -9,6 +9,6 @@ from ..states import MainState
 router = Router()
 
 
-@router.message(MainState.customer, F.text == 'История заказов')
+@router.message(MainState.main, F.text == 'История заказов')
 async def orders(message: Message, state: FSMContext) -> None:
-    pass
+    await message.answer('Пока не работает')

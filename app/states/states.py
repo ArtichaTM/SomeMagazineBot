@@ -8,5 +8,4 @@ __all__ = (
 
 class MainState(StatesGroup):
     STATE_FUNCTION = None
-    customer = State()
-    manager = State()
+    main = State()

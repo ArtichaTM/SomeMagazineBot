@@ -33,6 +33,7 @@ __all__ = (
 from settings import Settings
 
 SCHEMA = 'testpelz'
+USER_TUPLE = namedtuple('User', ('customer', 'manager'))
 
 
 class OrderStatus(enum.Enum):
@@ -189,15 +190,13 @@ def db_init():
     Settings['sql_engine'] = engine
 
 
-def find_by_id(id: int) -> Customer | Manager | None:
+def find_by_id(id: int) -> USER_TUPLE:
     engine = Settings['sql_engine']
-    customer = select(Customer).where(Customer.id == id)
-    manager = select(Manager).where(Manager.id == id)
     with Session(engine) as session:
-        customer = session.execute(customer).scalar_one_or_none()
-        if customer:
-            return customer
-        return session.execute(manager).scalar_one_or_none()
+        return USER_TUPLE(
+            session.execute(select(Customer).where(Customer.id == id)).scalar_one_or_none(),
+            session.execute(select(Manager).where(Manager.id == id)).scalar_one_or_none()
+        )
 
 
 def create_customer(user_id: int) -> Customer:

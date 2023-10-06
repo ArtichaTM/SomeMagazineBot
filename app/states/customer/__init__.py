@@ -22,12 +22,8 @@ router.include_routers(
 )
 
 
-async def build_menu(state: FSMContext) -> ReplyKeyboardMarkup:
-    # user: Customer | Manager = (await state.get_data())['user']
-    return ReplyKeyboardMarkup(
-        keyboard=[[
-                KeyboardButton(text='Просмотреть товары'),
-                KeyboardButton(text='История заказов')
-        ]],
-        resize_keyboard=True
-    )
+async def build_menu(state: FSMContext) -> list[KeyboardButton]:
+    return [
+        KeyboardButton(text='Просмотреть товары'),
+        KeyboardButton(text='История заказов')
+    ]

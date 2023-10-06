@@ -29,7 +29,7 @@ async def start(message: Message, state: FSMContext) -> None:
     await state.set_state(CustomerProductView.main)
     data = await state.get_data()
     product: Product = data['product']
-    user: Customer = data['user']
+    user: Customer = data['customer']
     output = StringIO()
     output.write(f'Выбран продукт {product.name}')
 
@@ -95,7 +95,7 @@ async def back(message: Message, state: FSMContext) -> None:
 @router.message(CustomerProductView.main, F.text == 'Убрать из корзины')
 async def cart_remove(message: Message, state: FSMContext) -> None:
     data: dict = await state.get_data()
-    user: Customer = data['user']
+    user: Customer = data['customer']
     product: Product = data['product']
 
     with Session(Settings['sql_engine']) as sess:
@@ -132,7 +132,7 @@ async def cart_remove(message: Message, state: FSMContext) -> None:
 @router.message(CustomerProductView.main, F.text.in_({'Добавить в корзину', 'Добавить ещё в корзину'}))
 async def cart_add(message: Message, state: FSMContext) -> None:
     data: dict = await state.get_data()
-    user: Customer = data['user']
+    user: Customer = data['customer']
     product: Product = data['product']
 
     amount: int = 0

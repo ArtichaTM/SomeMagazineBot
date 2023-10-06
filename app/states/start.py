@@ -25,26 +25,22 @@ async def command_start_handler(message: Message, state: FSMContext) -> None:
     """
     This handler receives messages with `/start` command
     """
-    bot: Bot = Settings['bot']
     user_id = message.from_user.id
     someone = find_by_id(user_id)
-    if isinstance(someone, Customer):
-        await state.set_state(MainState.customer)
-        kb = await customer_menu(MainState.customer)
-    elif isinstance(someone, Manager):
-        await state.set_state(MainState.manager)
-        kb = await manager_menu(MainState.manager)
-    elif someone is None:
-        someone = create_customer(user_id)
+    kb = []
+    if someone.customer is None and someone.manager is None:
+        someone = (create_customer(user_id), None)
         name = message.from_user.first_name
-        await state.set_state(MainState.customer)
-        kb = await customer_menu(MainState.customer)
-        await bot.send_message(message.chat.id, f"Добро пожаловать в магазин, {hbold(name)}!")
-    else:
-        raise RuntimeError("Unknown return type from \"find_by_id\".")
-    await state.set_data({'user': someone})
-
-    await message.answer('Главное меню', reply_markup=kb)
+        await message.answer(f"Добро пожаловать в магазин, {hbold(name)}!")
+    if someone.customer is not None:
+        kb.extend(await customer_menu(state))
+    if someone.manager is not None:
+        kb.extend(await manager_menu(state))
+    await message.answer('Главное меню', reply_markup=ReplyKeyboardMarkup(
+        keyboard=[kb], resize_keyboard=True
+    ))
+    await state.set_data({'customer': someone.customer, 'manager': someone.manager})
+    await state.set_state(MainState.main)
 
 
 MainState.STATE_FUNCTION = command_start_handler

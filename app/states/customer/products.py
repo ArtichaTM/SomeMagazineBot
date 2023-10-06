@@ -1,6 +1,6 @@
-from aiogram import Bot, Router, F
+from aiogram import Router, F
 from aiogram.fsm.context import FSMContext
-from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
+from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton
 
 from .states import ProductsDecision, ProductsList, ProductsNamePrompt
 from ..states import MainState
@@ -12,7 +12,7 @@ __all__ = ('router', )
 router = Router()
 
 
-@router.message(MainState.customer, F.text == 'Просмотреть товары')
+@router.message(MainState.main, F.text == 'Просмотреть товары')
 async def decision(message: Message, state: FSMContext) -> None:
     await message.answer('Воспользуетесь поиском?', reply_markup=ReplyKeyboardMarkup(
         keyboard=[[KeyboardButton(text='Назад'), KeyboardButton(text='Да'), KeyboardButton(text='Нет')]],
