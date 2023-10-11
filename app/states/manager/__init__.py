@@ -6,9 +6,3 @@ from db import Customer, Manager
 
 
 router = Router()
-
-
-async def build_menu(state: FSMContext) -> list[KeyboardButton]:
-    return [
-        KeyboardButton(text='Аналитика')
-    ]

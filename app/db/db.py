@@ -1,14 +1,15 @@
 # Python imports
+import logging
 from collections import namedtuple
 from datetime import datetime
 from os import getenv
 import enum
-from typing import Optional, Sequence
+from typing import Callable, Optional, Sequence
 
 # Library imports
-from sqlalchemy import create_engine, URL, text
+from sqlalchemy import Select, create_engine, URL, text
 from sqlalchemy import String, BigInteger, Enum, DateTime, Float, ForeignKey
-from sqlalchemy import select, insert
+from sqlalchemy import select
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.orm import Session
@@ -16,6 +17,8 @@ from sqlalchemy.sql import func
 
 
 __all__ = (
+    'USER_TUPLE',
+    'ORDER_PRODUCT',
     'Product',
     'ProductDiscount',
     'DiscountCard',
@@ -34,14 +37,23 @@ from settings import Settings
 
 SCHEMA = 'testpelz'
 USER_TUPLE = namedtuple('User', ('customer', 'manager'))
+ORDER_PRODUCT = namedtuple('Cart', (
+    'order_id', 'product_id', 'product_name',
+    'product_amount', 'product_cost', 'product_in_cart_amount'
+))
 
 
 class OrderStatus(enum.Enum):
     CART = enum.auto()
-    SETTING = enum.auto()
     PAYING = enum.auto()
-    PAY_CHECK = enum.auto()
     WAITING_FOR_TAKE = enum.auto()
+
+    def russian(self) -> str:
+        return {
+            'CART': 'корзина',
+            'PAYING': 'оплачивается',
+            'WAITING_FOR_TAKE': 'ожидает выдачи'
+        }[self.name]
 
 
 class Base(DeclarativeBase):
@@ -64,12 +76,7 @@ class Customer(Base):
     orders_active: Mapped[list['Order']] = relationship(back_populates='customer')
     orders_old: Mapped[list['OrderHistory']] = relationship(back_populates='customer')
 
-    CART_PRODUCT = namedtuple('Cart', (
-        'order_id', 'product_id', 'product_name',
-        'product_amount', 'product_cost', 'product_in_cart_amount'
-    ))
-
-    def get_cart(self, session: Session) -> list[CART_PRODUCT]:
+    def get_cart(self, session: Session) -> dict[int, ORDER_PRODUCT]:
         cart_sql = text(f"""
             SELECT
                 o.id AS order_id,
@@ -80,11 +87,15 @@ class Customer(Base):
                 op.amount AS product_in_cart_amount
             FROM {SCHEMA}.OrderProduct as op
             RIGHT JOIN {SCHEMA}.`Order` AS o ON (op.order_id = o.id)
-            LEFT JOIN {SCHEMA}.Product as p ON (op.product_id = p.id);
+            LEFT JOIN {SCHEMA}.Product as p ON (op.product_id = p.id)
+            WHERE o.customer_id = {self.id};
         """)
         cart = session.execute(cart_sql).all()
-        values = [self.CART_PRODUCT(*i) for i in cart]
-        return values
+        output = dict()
+        for product in cart:
+            tuple = ORDER_PRODUCT(*product)
+            output[tuple.product_id] = tuple
+        return output
 
 
 class DiscountCard(Base):
@@ -110,8 +121,56 @@ class Order(Base):
     customer_id: Mapped[int] = mapped_column(ForeignKey(f"{SCHEMA}.Customer.id"))
     customer: Mapped['Customer'] = relationship(back_populates="orders_active")
 
-    # def product_amount(self, session: Session, product: 'Product') -> int | None:
-    #     cart = select(order_product).where(order_product.)
+    @classmethod
+    async def list(cls, customer_id: int, offset, limit: int = 10) -> Sequence['Order']:
+        stmt = select(cls)\
+            .where(cls.customer_id == customer_id)\
+            .offset(offset)\
+            .limit(limit)
+        with Session(Settings['sql_engine']) as sess:
+            return sess.execute(stmt).scalars().all()
+
+    @classmethod
+    async def amount(cls, customer_id: int) -> int:
+        stmt = text(f"""
+            SELECT COUNT(*)
+            FROM {SCHEMA}.OrderProduct as op
+            INNER JOIN {SCHEMA}.`Order` as o ON op.order_id = o.id
+            WHERE o.customer_id = {customer_id}
+        """)
+        with Session(Settings['sql_engine']) as sess:
+            return sess.execute(stmt).scalar()
+
+    async def products_overall_amount(self) -> int:
+        stmt = text(f"""
+            SELECT SUM(op.amount)
+            FROM {SCHEMA}.OrderProduct as op
+            WHERE op.order_id = {self.id}
+        """)
+        with Session(Settings['sql_engine']) as sess:
+            value = sess.execute(stmt).scalar()
+            return value if value is not None else 0
+
+    async def products(self, session: Session) -> dict[int, ORDER_PRODUCT]:
+        cart = text(f"""
+            SELECT
+                o.id AS order_id,
+                p.id AS product_id,
+                p.name AS product_name,
+                p.amount AS product_amount,
+                p.cost AS product_cost,
+                op.amount AS product_in_cart_amount
+            FROM {SCHEMA}.OrderProduct as op
+            RIGHT JOIN {SCHEMA}.`Order` AS o ON (op.order_id = o.id)
+            LEFT JOIN {SCHEMA}.Product as p ON (op.product_id = p.id)
+            WHERE o.id = {self.id};
+        """)
+        cart = session.execute(cart).all()
+        output = dict()
+        for product in cart:
+            tuple = ORDER_PRODUCT(*product)
+            output[tuple.product_id] = tuple
+        return output
 
 
 class OrderHistoryProduct(Base):
@@ -129,13 +188,13 @@ class OrderHistory(Base):
     customer_id: Mapped[int] = mapped_column(ForeignKey(f"{SCHEMA}.Customer.id"), index=True)
     customer: Mapped['Customer'] = relationship(back_populates="orders_old")
 
-    @staticmethod
-    async def list(offset, limit: int = 10, query: str = None) -> Sequence['Product']:
-        engine = Settings['sql_engine']
-        with Session(engine) as sess:
-            stmt = select(Product).offset(offset).limit(limit)
-            if query:
-                stmt = stmt.filter(Product.name.like(f'%{query}%'))
+    @classmethod
+    async def list(cls, customer_id: int, offset, limit: int = 10) -> Sequence['OrderHistory']:
+        stmt = select(cls)\
+            .where(cls.customer_id == customer_id)\
+            .offset(offset)\
+            .limit(limit)
+        with Session(Settings['sql_engine']) as sess:
             return sess.execute(stmt).scalars().all()
 
 
@@ -150,12 +209,33 @@ class Product(Base):
     discount: Mapped['ProductDiscount'] = relationship(back_populates='product')
 
     @staticmethod
-    async def list(offset: int, limit: int, query: str = None) -> Sequence['Product']:
+    async def list(
+            offset: int,
+            limit: int,
+            query: Callable[[Select], Select] | str = None
+    ) -> Sequence['Product']:
         stmt = select(Product).offset(offset).limit(limit)
-        if query is not None:
+        if query is None:
+            pass
+        elif isinstance(query, str):
             stmt = stmt.where(Product.name.like(f'%{query}%'))
+        elif callable(query):
+            stmt = query(stmt)
+        else:
+            logging.error(f'What is this query? {query}, type {type(query)}')
         with Session(Settings['sql_engine']) as sess:
             return sess.execute(stmt).scalars().all()
+
+    @staticmethod
+    async def current_cost(session: Session, product_id: int, product_cost: float) -> float:
+        discount = session.execute(text(f"""
+            SELECT amount
+            FROM {SCHEMA}.ProductDiscount
+            WHERE product_id = {product_id}
+        """)).scalar_one_or_none()
+        if discount is None:
+            return product_cost
+        return product_cost * (1-discount)
 
 
 class ProductDiscount(Base):
@@ -188,6 +268,9 @@ def db_init():
     engine = create_engine(url)
     Base.metadata.create_all(engine)
     Settings['sql_engine'] = engine
+    # engine = create_engine('sqlite:///sqlite.db') # TODO Sqlite3 support
+    # Base.metadata.create_all(engine)
+    # Settings['sql_engine'] = engine
 
 
 def find_by_id(id: int) -> USER_TUPLE:
@@ -199,13 +282,16 @@ def find_by_id(id: int) -> USER_TUPLE:
         )
 
 
-def create_customer(user_id: int) -> Customer:
+def create_customer(user_id: int) -> USER_TUPLE:
     engine = Settings['sql_engine']
-    customer = insert(Customer).values(id=user_id).returning(Customer)
-    with Session(engine, autoflush=True) as session:
-        result = session.scalar(customer)
+    with Session(engine) as session:
+        session.execute(text(f"""
+            INSERT INTO {SCHEMA}.`Customer` (id)
+            VALUES ({user_id});
+        """))
         session.execute(text(f"""
             INSERT INTO {SCHEMA}.`Order` (status, customer_id)
             VALUES ('{OrderStatus.CART.name}', {user_id});
         """))
-    return result
+        session.commit()
+    return find_by_id(user_id)
